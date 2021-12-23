@@ -1,0 +1,2 @@
+A basic file system (ie not networked) file synchroniser. Do filesync -h
+for usage.
