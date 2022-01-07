@@ -157,7 +157,7 @@ void parseCmdLine(int argc, char **argv)
 void version()
 {
 	puts("\n*** FILESYNC ***\n");
-	puts("Copyright (C) Neil Robertson 2021\n");
+	puts("Copyright (C) Neil Robertson 2021-2022\n");
 	printf("Version   : %s\n",VERSION);
 	printf("Build date: %s\n\n",BUILD_DATE);
 }
@@ -171,6 +171,7 @@ void init()
 	char errstr[100];
 	int err;
 
+	bytes_copied = 0;
 	files_copied = 0;
 	symlinks_copied = 0;
 	dirs_copied = 0;

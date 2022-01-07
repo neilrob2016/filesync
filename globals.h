@@ -15,7 +15,7 @@
 #include <map>
 #include <string>
 
-#define VERSION      "20211223"
+#define VERSION      "20220107"
 #define BUFFSIZE     10000
 #define REGEX_MAX    10
 #define META_WARN    "WARNING: Couldn't set some or all metadata."
@@ -58,6 +58,7 @@ EXTERN vector<regex_t> comp_regex;
 EXTERN string dir_src;
 EXTERN string dir_dest;
 EXTERN struct st_flags flags;
+EXTERN size_t bytes_copied;
 EXTERN int verbose;
 EXTERN int files_copied;
 EXTERN int symlinks_copied;

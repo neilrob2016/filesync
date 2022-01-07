@@ -2,13 +2,14 @@
 
 bool   loadDir(string &dirname, map<string,struct stat> &files_list);
 bool   makeDir(char *dirname, struct stat *src_stat, int depth);
-off_t copyFile(char *src, char *dest, struct stat *src_stat);
+size_t copyFile(char *src, char *dest, struct stat *src_stat);
 void   copySymbolicLink(
 	char *src_link,
 	char *dest_link,
 	struct stat *src_stat, struct stat *dest_stat, int depth);
 bool   setMetaData(char *path, struct stat *src_stat);
 bool   sameContents(char *file1, char *file2);
+char  *bytesSizeStr(size_t bytes);
 
 
 /*** Copy the files from source directory to destination directory ***/
@@ -23,7 +24,7 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 	string name;
 	string src_path;
 	string dest_path;
-	off_t bytes;
+	size_t bytes;
 	char *csrc_path;
 	char *cdest_path;
 	mode_t src_type;
@@ -155,16 +156,7 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 			}
 			bytes = copyFile(csrc_path,cdest_path,src_stat);
 			if ((long)bytes != -1 && verbose)
-			{
-				if (bytes < 1000)
-					printf("%ld bytes OK\n",(long)bytes);
-				else if (bytes < 1e6)
-					printf("%ldK OK\n",(long)bytes / 1000);
-				else if (bytes < 1e9)
-					printf("%.1fM OK\n",(double)bytes / 1e6);
-				else
-					printf("%.1fG OK\n",(double)bytes / 1e9);
-			}
+				printf("%s OK\n",bytesSizeStr(bytes));
 			break;
 
 		case S_IFDIR:
@@ -227,7 +219,8 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 	}
 	else if (verbose)
 	{
-		printf("\nFiles copied      : %d\n",files_copied);
+		printf("\nFiles copied      : %d (%s)\n",
+			files_copied,bytesSizeStr(bytes_copied));
 		printf("Symlinks copied   : %d\n",symlinks_copied);
 		printf("Directories copied: %d\n",dirs_copied);
 		printf("Unmatched deleted : %d\n",unmatched_deleted);
@@ -323,10 +316,10 @@ bool makeDir(char *dirname, struct stat *src_stat, int depth)
 
 
 
-off_t copyFile(char *src, char *dest, struct stat *src_stat)
+size_t copyFile(char *src, char *dest, struct stat *src_stat)
 {
 	char buff[BUFFSIZE];
-	off_t bytes;
+	size_t bytes;
 	int src_fd;
 	int dest_fd;
 	int wrote;
@@ -375,6 +368,7 @@ off_t copyFile(char *src, char *dest, struct stat *src_stat)
 		return -1;
 	}
 	++files_copied;
+	bytes_copied += bytes;
 	if (!setMetaData(dest,src_stat) && verbose)
 	{
 		puts(META_WARN);
@@ -558,4 +552,24 @@ bool sameContents(char *file1, char *file2)
 	fclose(fp2);
 
 	return ret;
+}
+
+
+
+
+char *bytesSizeStr(size_t bytes)
+{
+	static char str[20];
+
+	/* Only start printing in kilobytes from 10000 as eg 2345 bytes is
+	   still easy to read */
+	if (bytes < 1e4)
+		sprintf(str,"%lu bytes",bytes);
+	else if (bytes < 1e6)
+		sprintf(str,"%.1fK",(double)bytes / 1e3);
+	else if (bytes < 1e9)
+		sprintf(str,"%.1fM",(double)bytes / 1e6);
+	else
+		sprintf(str,"%.2fG",(double)bytes / 1e9);
+	return str;
 }
