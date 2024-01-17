@@ -1,2 +1,4 @@
-A basic file system (ie not networked) file synchroniser. Do filesync -h
-for usage.
+Filesync is a basic file system (ie not networked unless you're using NFS or 
+Samba) file synchroniser. Do filesync -h for usage.
+
+Any bugs or ideas email me at: neilrob2016@gmail.com

@@ -1,0 +1,6 @@
+20240117
+========
+- Changed old -x argument to -l
+- Added new -x argument which causes copying of extended attributes.
+- Changed default verbosity level from 0 to 1.
+- Added sync() call at the end.

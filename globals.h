@@ -9,17 +9,15 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/xattr.h>
 
 #include <unordered_set>
 #include <vector>
 #include <map>
 #include <string>
+#include <memory>
 
-#define VERSION      "20220107"
-#define BUFFSIZE     10000
-#define REGEX_MAX    10
-#define META_WARN    "WARNING: Couldn't set some or all metadata."
-#define ERROR_EXIT() if (flags.stop_on_error) exit(errno); else ++errors
+#define VERSION   "20240117"
 
 #ifdef MAINFILE
 #define EXTERN
@@ -32,7 +30,7 @@ using namespace std;
 enum
 {
 	VERB_NONE,
-	VERB_LOW,
+	VERB_NORMAL,
 	VERB_HIGH
 };
 
@@ -49,6 +47,7 @@ struct st_flags
 	unsigned delete_unmatched : 1;
 	unsigned copy_dot_files   : 1;
 	unsigned copy_metadata    : 1;
+	unsigned copy_xattrs      : 1;
 	unsigned compare_contents : 1;
 	unsigned ignore_case      : 1;
 };

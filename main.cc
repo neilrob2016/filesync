@@ -34,7 +34,7 @@ void parseCmdLine(int argc, char **argv)
 
 	if (argc < 2) goto USAGE;
 
-	verbose = VERB_NONE;
+	verbose = VERB_NORMAL;
 	regex_type = REGEX_NONE;
 
 	bzero(&flags,sizeof(flags));
@@ -59,6 +59,9 @@ void parseCmdLine(int argc, char **argv)
 		case 'i':
 			flags.ignore_case = 1;
 			continue;
+		case 'l':
+			flags.delete_unmatched = 1;
+			continue;
 		case 'm':
 			flags.copy_metadata = 0;
 			continue;
@@ -69,7 +72,7 @@ void parseCmdLine(int argc, char **argv)
 			version();
 			exit(0);
 		case 'x':
-			flags.delete_unmatched = 1;
+			flags.copy_xattrs = 1;
 			continue;
 		}
 		if (++i == argc) goto USAGE;
@@ -136,18 +139,20 @@ void parseCmdLine(int argc, char **argv)
 	       "      [-i]                    : Ignore case in names when not using regex.\n"
 	       "                                Meant for OSX which has a case insensitive\n"
 	       "                                file system by default.\n"
-	       "      [-m]                    : Do NOT copy file metadata. ie: mode, user id,\n"
-	       "                                group id, access and modification times.\n"
-	       "      [-o]                    : Copy (and delete if -x) dot files and\n"
+	       "      [-l]                    : Delete files (not dirs) in destination that\n"
+	       "                                don't exist in the source.\n"
+	       "      [-m]                    : Do NOT copy standard file metadata. ie: mode,\n"
+	       "                                user & group id, access and modification times.\n"
+	       "      [-o]                    : Copy (and delete if -l) dot files and\n"
 	       "                                directories. eg: .profile\n"
 	       "      [-v]                    : Print version and exit.\n"
-	       "      [-x]                    : Delete files (not dirs) in destination that\n"
-	       "                                don't exist in the source.\n"
+	       "      [-x]                    : Copy extended attributes if possible. If it\n"
+	       "                                fails a warning is given, not a fatal error.\n"
 	       "Note: The -p argument restricts files and symlinks copied to those that match\n"
 	       "      the given pattern(s). The option must be used once for each pattern.\n"
 	       "      The patterns use '*' and '?' to match unless the regular expression -r\n"
 	       "      option is given.\n",
-		argv[0],VERB_NONE,VERB_HIGH,VERB_NONE);
+		argv[0],VERB_NONE,VERB_HIGH,VERB_NORMAL);
 	exit(1);
 }
 
@@ -157,7 +162,7 @@ void parseCmdLine(int argc, char **argv)
 void version()
 {
 	puts("\n*** FILESYNC ***\n");
-	puts("Copyright (C) Neil Robertson 2021-2022\n");
+	puts("Copyright (C) Neil Robertson 2021-2024\n");
 	printf("Version   : %s\n",VERSION);
 	printf("Build date: %s\n\n",BUILD_DATE);
 }
@@ -194,4 +199,3 @@ void init()
 		}
 	}
 }
-

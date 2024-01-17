@@ -1,13 +1,22 @@
 #include "globals.h"
 
+#define BUFFSIZE  10000
+#define ERROR_EXIT() if (flags.stop_on_error) exit(errno); else ++errors
+#define META_WARN() \
+	printf("WARNING: Couldn't set metadata: %s\n",strerror(errno));
+#define XATTR_WARN() \
+	printf("WARNING: Couldn't set xattributes: %s\n",strerror(errno));
+
 bool   loadDir(string &dirname, map<string,struct stat> &files_list);
-bool   makeDir(char *dirname, struct stat *src_stat, int depth);
+bool   makeDir(char *src, char *dest, struct stat *src_stat, int depth);
 size_t copyFile(char *src, char *dest, struct stat *src_stat);
 void   copySymbolicLink(
 	char *src_link,
 	char *dest_link,
 	struct stat *src_stat, struct stat *dest_stat, int depth);
-bool   setMetaData(char *path, struct stat *src_stat);
+bool   copyMetaData(char *src, char *dest, struct stat *src_stat, bool symlink);
+bool   copyFileAttrs(char *dest, struct stat *src_stat);
+bool   copyXAttrs(char *src, char *dest, bool symlink);
 bool   sameContents(char *file1, char *file2);
 char  *bytesSizeStr(size_t bytes);
 
@@ -160,7 +169,7 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 			break;
 
 		case S_IFDIR:
-			if (makeDir(cdest_path,src_stat,depth))
+			if (makeDir(csrc_path,cdest_path,src_stat,depth))
 			{
 				if (errno != EEXIST) ++dirs_copied;
 				if (verbose == VERB_HIGH)
@@ -216,8 +225,14 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 			printf("%d: Leaving directory \"%s\"\n",
 				depth,src_dir.c_str());
 		}
+		return;
 	}
-	else if (verbose)
+
+	// Back at top level
+	if (verbose) puts("\nSyncing...");
+	sync();
+
+	if (verbose)
 	{
 		printf("\nFiles copied      : %d (%s)\n",
 			files_copied,bytesSizeStr(bytes_copied));
@@ -269,44 +284,42 @@ bool loadDir(string &dirname, map<string,struct stat> &files_list)
 
 
 
-bool makeDir(char *dirname, struct stat *src_stat, int depth)
+bool makeDir(char *src, char *dest, struct stat *src_stat, int depth)
 {
 	struct stat fs;
-	bool meta;
+	int err;
 
-	if (mkdir(dirname,0755) != -1)
+	if (mkdir(dest,0755) != -1)
 	{
-		meta = setMetaData(dirname,src_stat);
+		err = errno;
 		if (verbose)
-		{
-			printf("%d: Created directory \"%s\": ",depth,dirname);
-			puts(meta ? "OK": META_WARN);
-		}
-		return true;
+			printf("%d: Created directory \"%s\": ",depth,dest);
+		if (copyMetaData(src,dest,src_stat,false) && verbose)
+			puts("OK");
 	}
+	else err = 0;
 
-	if (errno == EEXIST)
+	if (err == EEXIST)
 	{
 		// Make sure its a dir
-		if (lstat(dirname,&fs) == -1)
+		if (lstat(dest,&fs) == -1)
 		{
 			printf("ERROR: makeDir(): lstat(\"%s\"): %s\n",
-				dirname,strerror(errno));
+				dest,strerror(err));
 			ERROR_EXIT();
 			return false;
 		}
 		if ((fs.st_mode & S_IFMT) != S_IFDIR)
 		{
-			printf("ERROR: Destination \"%s\" exists and it is not a directory.\n",
-				dirname);
+			printf("ERROR: Destination \"%s\" exists and it is not a directory.\n",dest);
 			ERROR_EXIT();
 			return false;
 		}
 	}
-	else
+	else if (err)
 	{
 		printf("ERROR: makeDir(): mkdir(\"%s\"): %s\n",
-			dirname,strerror(errno));
+			dest,strerror(err));
 		ERROR_EXIT();
 		return false;
 	}
@@ -369,12 +382,8 @@ size_t copyFile(char *src, char *dest, struct stat *src_stat)
 	}
 	++files_copied;
 	bytes_copied += bytes;
-	if (!setMetaData(dest,src_stat) && verbose)
-	{
-		puts(META_WARN);
-		return -1;
-	}
-	return bytes;
+
+	return copyMetaData(src,dest,src_stat,false) ? bytes : -1;
 }
 
 
@@ -385,24 +394,17 @@ void copySymbolicLink(
 	char *dest_link,
 	struct stat *src_stat, struct stat *dest_stat, int depth)
 {
-	char *src_target;
-	char *dest_target;
+	char *dest_target = NULL;
 	ssize_t len;
-	bool meta;
 
-	if (!(src_target = (char *)malloc(src_stat->st_size+1)))
-	{
-		printf("ERROR: copySymbolicLink(): malloc(): %s\n",
-			strerror(errno));
-		ERROR_EXIT();
-		return;
-	}
+	unique_ptr<char[]> usrc_target(new char[src_stat->st_size+1]);
+	char *src_target = usrc_target.get();
+
 	if ((len = readlink(src_link,src_target,src_stat->st_size)) == -1)
 	{
 		printf("ERROR: copySymbolicLink(): readlink(): %s\n",
 			strerror(errno));
 		ERROR_EXIT();
-		free(src_target);
 		return;
 	}
 	src_target[len] = 0;
@@ -412,20 +414,14 @@ void copySymbolicLink(
 	   not check? */
 	if (dest_stat)
 	{
-		if (!(dest_target = (char *)malloc(dest_stat->st_size+1)))
-		{
-			printf("ERROR: copySymbolicLink(): malloc(): %s\n",
-				strerror(errno));
-			ERROR_EXIT();
-			free(src_target);
-			return;
-		}
+		unique_ptr<char[]> udest_target(new char[dest_stat->st_size+1]);
+		dest_target = udest_target.get();
 		if ((len = readlink(dest_link,dest_target,dest_stat->st_size)) == -1)
 		{
 			printf("ERROR: copySymbolicLink(): readlink(): %s\n",
 				strerror(errno));
 			ERROR_EXIT();
-			goto FREE;
+			return;
 		}
 		dest_target[len] = 0;
 		if (!strcmp(src_target,dest_target))
@@ -435,9 +431,8 @@ void copySymbolicLink(
 				printf("%d: Not recreating symlink \"%s\" as it already exists as \"%s\" with the same target.\n",
 					depth,src_link,dest_link);
 			}
-			goto FREE;
+			return;
 		}
-		free(dest_target);
 	}
 	if (verbose)
 	{
@@ -452,22 +447,42 @@ void copySymbolicLink(
 		ERROR_EXIT();
 		return;
 	}
-	meta = setMetaData(dest_link,src_stat);
-	if (verbose) puts(meta ? "OK" : META_WARN);
-	free(src_target);
+	if (copyMetaData(src_link,dest_link,src_stat,true) && verbose)
+		puts("OK");
 	++symlinks_copied;
-	return;
-
-	FREE:
-	free(src_target);
-	free(dest_target);
 }
 
 
 
 
-/*** Set the meta data in the inode ***/
-bool setMetaData(char *path, struct stat *src_stat)
+bool copyMetaData(char *src, char *dest, struct stat *src_stat, bool symlink)
+{
+	bool ret = true;
+
+	if (flags.copy_metadata)
+	{
+		if (!(ret = copyFileAttrs(dest,src_stat)))
+		{
+			if (verbose) META_WARN();
+		}
+	}
+	// Only try to copy xattributes if normal metadata copy went ok
+	if (ret)
+	{
+		if (flags.copy_xattrs)
+		{
+			ret = copyXAttrs(src,dest,symlink);
+			if (verbose && !ret) XATTR_WARN();
+		}
+	}
+	return ret;
+}
+
+
+
+
+/*** Set the file attributes data in the inode ***/
+bool copyFileAttrs(char *dest, struct stat *src_stat)
 {
 	if (!flags.copy_metadata) return true;
 
@@ -475,19 +490,18 @@ bool setMetaData(char *path, struct stat *src_stat)
 	bool ok = true;
 
 	if (fchownat(
-		AT_FDCWD,path,
+		AT_FDCWD,dest,
 		src_stat->st_uid,src_stat->st_gid,AT_SYMLINK_NOFOLLOW) == -1)
 	{
 		ok = false;
 	}
+	/* Soft link permissions appear to be hardcoded to 777 on linux and
+	   calling fchmodat() just gives an operation not supported error so
+	   don't bother */
 #ifdef __APPLE__
-	// Can get an operation not supported error with this under Linux.
-	// Perhaps its just my distro/kernel?
-	if (fchmodat(AT_FDCWD,path,src_stat->st_mode,AT_SYMLINK_NOFOLLOW) == -1)
-#else
-	if (chmod(path,src_stat->st_mode) == -1)
-#endif
+	if (fchmodat(AT_FDCWD,dest,src_stat->st_mode,AT_SYMLINK_NOFOLLOW) == -1)
 		ok = false;
+#endif
 
 	// Only need time to the nearest second.
 	tv[0].tv_usec = 0;
@@ -500,11 +514,105 @@ bool setMetaData(char *path, struct stat *src_stat)
 	tv[0].tv_sec = src_stat->st_atim.tv_sec;
 	tv[1].tv_sec = src_stat->st_mtim.tv_sec;
 #endif
-	if (lutimes(path,tv) == -1) ok = false; 
+	if (lutimes(dest,tv) == -1) ok = false; 
 
 	warnings += (ok == false);
 
 	return ok;
+}
+
+
+
+
+/*** Use xattr on MacOS command line to set, attr on linux. Linux doesn't
+     allow extended attributes on soft links except under specific 
+     circumstances but I've put the code in anyway ***/
+bool copyXAttrs(char *src, char *dest, bool symlink)
+{
+	int size;
+
+	// Get the key list length first then allocate memory for it.
+#ifdef __APPLE__
+	int flags = 0;
+	if (symlink) flags = XATTR_NOFOLLOW;
+	if ((size = listxattr(src,NULL,0,flags)) == -1)
+#else
+	if (symlink)
+		size = llistxattr(src,NULL,0);
+	else
+		size = listxattr(src,NULL,0);
+	if (size == -1)
+#endif
+		return false;
+
+	// Get the list of keys. Values have to be obtained seperately.
+	unique_ptr<char[]> ukeybuf(new char[size]);
+	char *keybuf = ukeybuf.get();
+#ifdef __APPLE__
+	if (listxattr(src,keybuf,size,flags) == -1)
+#else
+	if (symlink)
+		size = llistxattr(src,keybuf,size);
+	else
+		size = listxattr(src,keybuf,size);
+	if (size == -1)
+#endif
+		return false;
+
+	unique_ptr<char[]> uvalue;
+	char *end = (char *)(keybuf + size);
+	char *value;
+	char *key;
+	char *kend;
+	int vallen;
+	int res;
+
+	// Go through the list of keys
+	for(key=keybuf;key < end;key=kend+1)
+	{
+		// Should never happen but you never know
+		if (!(kend = strchr(key,'\0'))) return false;
+
+		// Get value length
+#ifdef __APPLE__
+		vallen = getxattr(src,key,NULL,0,0,flags);
+#else
+		// Linux has a seperate function for interrogating symlinks
+		if (symlink)
+			vallen = lgetxattr(src,key,NULL,0);
+		else
+			vallen = getxattr(src,key,NULL,0);
+#endif
+		if (vallen == -1) return false;
+
+		uvalue.reset(new char[vallen+1]);
+		value = uvalue.get();
+
+		// Get the value
+#ifdef __APPLE__
+		res = getxattr(src,key,value,vallen,0,flags);
+#else
+		if (symlink)
+			res = lgetxattr(src,key,value,vallen);
+		else
+			res = getxattr(src,key,value,vallen);
+#endif
+		if (res == -1) return false;
+		value[vallen] = 0;
+	
+		// Set key-value pair in new filesystem object. For this
+		// function MacOS has a positions parameter, linux doesn't.
+#ifdef __APPLE__
+		res = setxattr(dest,key,value,vallen,0,flags);
+#else
+		if (symlink)
+			res = lsetxattr(dest,key,value,vallen,0);
+		else
+			res = setxattr(dest,key,value,vallen,0);
+#endif
+		if (res == -1) return false;
+	}
+	return true;
 }
 
 

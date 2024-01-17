@@ -1,5 +1,7 @@
 #include "globals.h"
 
+#define REGEX_MAX 10
+
 bool wildMatch(const char *str, const char *pat);
 
 
