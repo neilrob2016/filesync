@@ -1,6 +1,6 @@
 
 CC=c++
-ARGS=-std=c++11 -Wall -Wextra -pedantic
+ARGS=-std=c++17 -Wall -Wextra -pedantic
 OBJS=main.o copy.o names.o
 BIN=filesync
 

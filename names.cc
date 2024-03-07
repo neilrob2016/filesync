@@ -24,7 +24,7 @@ map<string,struct stat>::iterator findName(
 
 
 /*** See if the file matched any patterns given with -p ***/
-bool nameMatched(string &name)
+bool nameMatched(const string &name)
 {
 	regmatch_t pmatch[REGEX_MAX];
 	int i;
@@ -78,13 +78,19 @@ bool wildMatch(const char *str, const char *pat)
 
 		case '*':
 			if (!*(p+1)) return true;
-
-			for(s2=s;*s2;++s2)
-				if (wildMatch(s2,p+1)) return true;
+			for(s2=s;*s2;++s2) if (wildMatch(s2,p+1)) return true;
 			return false;
 		}
 		if (*s != *p) return false;
 	}
 
-	return (!*s && !*p);
+	// Could have '*' leftover in the pattern which can match nothing.
+	// eg: "abc*" should match "abc" with the "*" matching "".
+	if (!*s)
+	{
+		for(;*p && *p == '*';++p);
+		if (!*p) return true;
+	}
+
+	return false;
 }

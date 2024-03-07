@@ -7,6 +7,8 @@
 #define XATTR_WARN() \
 	printf("WARNING: Couldn't set xattributes: %s\n",strerror(errno));
 
+namespace fs = std::filesystem;
+
 bool   loadDir(string &dirname, map<string,struct stat> &files_list);
 bool   makeDir(char *src, char *dest, struct stat *src_stat, int depth);
 size_t copyFile(char *src, char *dest, struct stat *src_stat);
@@ -27,12 +29,11 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 	map<string,struct stat> src_files;
 	map<string,struct stat> dest_files;
 	map<string,struct stat>::iterator dest_it;
-	struct stat *src_stat;
 	struct stat *dest_stat;
 	struct stat dest_dir_stat;
-	string name;
 	string src_path;
 	string dest_path;
+	string tmp_path;
 	size_t bytes;
 	char *csrc_path;
 	char *cdest_path;
@@ -68,21 +69,21 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 	{
 		// Delete any files in the destination dir that arn't in src.
 		// To much hassle to delete directories - would need to recurse
-		for(auto pr: dest_files)
+		for(auto &[name,tmp_stat]: dest_files)
 		{
-			if ((pr.second.st_mode & S_IFMT) == S_IFREG &&
-			     findName(pr.first,src_files) == src_files.end())
+			if ((tmp_stat.st_mode & S_IFMT) == S_IFREG &&
+			     findName(name,src_files) == src_files.end())
 			{
-				name = dest_dir + "/" + pr.first;
+				tmp_path = dest_dir + "/" + name;
 				if (verbose)
 				{
 					printf("%d: Deleting unmatched file \"%s\".\n",
-						depth,name.c_str());
+						depth,tmp_path.c_str());
 				}
-				if (unlink(name.c_str()) == -1)
+				if (unlink(tmp_path.c_str()) == -1)
 				{
 					printf("ERROR: copyFiles(): unlink(\"%s\"): %s\n",
-						name.c_str(),strerror(errno));
+						tmp_path.c_str(),strerror(errno));
 					ERROR_EXIT();
 				}
 				++unmatched_deleted;
@@ -91,22 +92,20 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 	}
 
 	// Go through source files and dirs to copy
-	for(auto &pr: src_files)
+	for(auto &[name,src_stat]: src_files)
 	{
-		name = pr.first;
 		src_path = src_dir + "/" + name;
 		dest_path = dest_dir + "/" + name;
 		csrc_path = (char *)src_path.c_str();
 		cdest_path = (char *)dest_path.c_str();
-		src_stat = &pr.second;
-		src_type = src_stat->st_mode & S_IFMT;
+		src_type = src_stat.st_mode & S_IFMT;
 
 		// Check we're not copying a directory into itself or we'll
 		// end up with recursion until we hit max path length or crash
 		if (src_type == S_IFDIR &&
 		    depth == 1 && 
-		    src_stat->st_dev == dest_dir_stat.st_dev &&
-		    src_stat->st_ino == dest_dir_stat.st_ino)
+		    src_stat.st_dev == dest_dir_stat.st_dev &&
+		    src_stat.st_ino == dest_dir_stat.st_ino)
 		{
 			if (verbose)
 			{
@@ -136,7 +135,7 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 			   whether its the same size. If it is then do nothing
 			   unless contents differ */
 			if ((dest_it = findName(name,dest_files)) != dest_files.end() &&
-			     dest_it->second.st_size == src_stat->st_size)
+			     dest_it->second.st_size == src_stat.st_size)
 			{
 				// If flag set check contents
 				if (flags.compare_contents && 
@@ -159,22 +158,26 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 			}
 			if (verbose)
 			{
-				printf("%d: Copying file \"%s\" to \"%s\"... ",
+				printf("%d: Copying file \"%s\" to \"%s\": ",
 					depth,csrc_path,cdest_path);
 				fflush(stdout);
 			}
-			bytes = copyFile(csrc_path,cdest_path,src_stat);
+			bytes = copyFile(csrc_path,cdest_path,&src_stat);
 			if ((long)bytes != -1 && verbose)
 				printf("%s OK\n",bytesSizeStr(bytes));
 			break;
 
 		case S_IFDIR:
-			if (makeDir(csrc_path,cdest_path,src_stat,depth))
+			if (makeDir(csrc_path,cdest_path,&src_stat,depth))
 			{
-				if (errno != EEXIST) ++dirs_copied;
+				if (errno != EEXIST)
+				{
+					++dirs_copied;
+					++total_copied;
+				}
 				if (verbose == VERB_HIGH)
 				{
-					printf("%d: Descending into dir \"%s\"\n",
+					printf("%d: Descending into directory \"%s\"...\n",
 						depth,csrc_path);
 				}
 				copyFiles(src_path,dest_path,depth+1);
@@ -195,19 +198,19 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 			if ((dest_it = findName(name,dest_files)) != dest_files.end())
 			{
 				// Check if link
-				if ((dest_it->second.st_mode & S_IFMT) != src_type)
+				dest_stat = &dest_it->second;
+				if ((dest_stat->st_mode & S_IFMT) != src_type)
 				{
 					printf("ERROR: Destination \"%s\" exists and it is not a symlink.\n",
 						cdest_path);
 					ERROR_EXIT();
 					break;
 				}
-				dest_stat = &dest_it->second;
 			}
 			else dest_stat = NULL;
 
 			copySymbolicLink(
-				csrc_path,cdest_path,src_stat,dest_stat,depth);
+				csrc_path,cdest_path,&src_stat,dest_stat,depth);
 			break;
 
 		default:
@@ -222,25 +225,34 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 	{
 		if (verbose == VERB_HIGH)
 		{
-			printf("%d: Leaving directory \"%s\"\n",
+			printf("%d: Leaving directory \"%s\"...\n",
 				depth,src_dir.c_str());
 		}
 		return;
 	}
 
-	// Back at top level
+	// Back at top level , depth = 1
+	if (!total_copied && !unmatched_deleted)
+	{
+		puts("Nothing to update.");
+		return;
+	}
+
 	if (verbose) puts("\nSyncing...");
 	sync();
 
 	if (verbose)
 	{
-		printf("\nFiles copied      : %d (%s)\n",
+		printf("\nFiles copied        : %d (%s)\n",
 			files_copied,bytesSizeStr(bytes_copied));
-		printf("Symlinks copied   : %d\n",symlinks_copied);
-		printf("Directories copied: %d\n",dirs_copied);
-		printf("Unmatched deleted : %d\n",unmatched_deleted);
-		printf("Warnings          : %d\n",warnings);
-		printf("Errors            : %d\n\n",errors);
+		printf("Symlinks copied     : %d\n",symlinks_copied);
+		printf("Directories copied  : %d\n",dirs_copied);
+		printf("Total FS objs copied: %d\n",total_copied);
+		printf("Xattributes copied  : %d from %d filesystem objects\n",
+			xattr_copied,xattr_files);
+		printf("Unmatched deleted   : %d\n",unmatched_deleted);
+		printf("Warnings            : %d\n",warnings);
+		printf("Errors              : %d\n\n",errors);
 	}
 }
 
@@ -250,34 +262,34 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 /*** Load the contents of a directory into files_list ***/
 bool loadDir(string &dirname, map<string,struct stat> &files_list)
 {
-	DIR *dir;
-	struct dirent *ds;
 	struct stat fs;
-	string path;
 	
-	if (!(dir = opendir(dirname.c_str())))
+	try
 	{
-		printf("ERROR: loadDir(): opendir(\"%s\"): %s\n",
-			dirname.c_str(),strerror(errno));
+		for(auto &file: fs::directory_iterator(dirname))
+		{
+			string name = file.path().filename().string();
+
+			if (name == "." || 
+			    name == ".." ||
+		            (!flags.copy_dot_files && name[0] == '.')) continue;
+
+			string path = file.path().string();
+			if (lstat(path.c_str(),&fs) == -1)
+			{
+				printf("ERROR: loadDir(): lstat(\"%s\"): %s\n",
+					path.c_str(),strerror(errno));
+				ERROR_EXIT();
+			}
+			else files_list[name] = fs;
+		}
+	}
+	catch(fs::filesystem_error &e)
+	{
+		printf("ERROR: loadDir(): directory_iterator(): %s\n",e.what());
 		ERROR_EXIT();
 		return false;
 	}
-	while((ds = readdir(dir)))
-	{
-		if (!strcmp(ds->d_name,".") || 
-		    !strcmp(ds->d_name,"..") ||
-		    (!flags.copy_dot_files && ds->d_name[0] == '.')) continue;
-
-		path = dirname + "/" + ds->d_name;
-		if (lstat(path.c_str(),&fs) == -1)
-		{
-			printf("ERROR: loadDir(): lstat(\"%s\"): %s\n",
-				path.c_str(),strerror(errno));
-			ERROR_EXIT();
-		}
-		else files_list[ds->d_name] = fs;
-	}
-	closedir(dir);
 	return true;
 }
 
@@ -287,25 +299,23 @@ bool loadDir(string &dirname, map<string,struct stat> &files_list)
 bool makeDir(char *src, char *dest, struct stat *src_stat, int depth)
 {
 	struct stat fs;
-	int err;
 
 	if (mkdir(dest,0755) != -1)
 	{
-		err = errno;
 		if (verbose)
 			printf("%d: Created directory \"%s\": ",depth,dest);
 		if (copyMetaData(src,dest,src_stat,false) && verbose)
 			puts("OK");
+		return true;
 	}
-	else err = 0;
 
-	if (err == EEXIST)
+	if (errno == EEXIST)
 	{
 		// Make sure its a dir
 		if (lstat(dest,&fs) == -1)
 		{
 			printf("ERROR: makeDir(): lstat(\"%s\"): %s\n",
-				dest,strerror(err));
+				dest,strerror(errno));
 			ERROR_EXIT();
 			return false;
 		}
@@ -316,10 +326,10 @@ bool makeDir(char *src, char *dest, struct stat *src_stat, int depth)
 			return false;
 		}
 	}
-	else if (err)
+	else 
 	{
 		printf("ERROR: makeDir(): mkdir(\"%s\"): %s\n",
-			dest,strerror(err));
+			dest,strerror(errno));
 		ERROR_EXIT();
 		return false;
 	}
@@ -381,6 +391,7 @@ size_t copyFile(char *src, char *dest, struct stat *src_stat)
 		return -1;
 	}
 	++files_copied;
+	++total_copied;
 	bytes_copied += bytes;
 
 	return copyMetaData(src,dest,src_stat,false) ? bytes : -1;
@@ -394,11 +405,12 @@ void copySymbolicLink(
 	char *dest_link,
 	struct stat *src_stat, struct stat *dest_stat, int depth)
 {
+	char *src_target = new char[src_stat->st_size+1];
 	char *dest_target = NULL;
 	ssize_t len;
 
-	unique_ptr<char[]> usrc_target(new char[src_stat->st_size+1]);
-	char *src_target = usrc_target.get();
+	// Auto delete mem on function exit
+	unique_ptr<char[]> usrc_target(src_target);
 
 	if ((len = readlink(src_link,src_target,src_stat->st_size)) == -1)
 	{
@@ -409,13 +421,12 @@ void copySymbolicLink(
 	}
 	src_target[len] = 0;
 
-	/* If link exists at the destination see if it points to the same
-	   thing. Perhaps it would be more efficient just to recreate and
-	   not check? */
+	// If link already exists...
 	if (dest_stat)
 	{
-		unique_ptr<char[]> udest_target(new char[dest_stat->st_size+1]);
-		dest_target = udest_target.get();
+		dest_target = new char[dest_stat->st_size+1];
+		unique_ptr<char[]> udest_target(dest_target);
+
 		if ((len = readlink(dest_link,dest_target,dest_stat->st_size)) == -1)
 		{
 			printf("ERROR: copySymbolicLink(): readlink(): %s\n",
@@ -424,22 +435,41 @@ void copySymbolicLink(
 			return;
 		}
 		dest_target[len] = 0;
+
+		// If its already pointing to the right thing don't do anything
 		if (!strcmp(src_target,dest_target))
 		{
 			if (verbose == VERB_HIGH)
 			{
-				printf("%d: Not recreating symlink \"%s\" as it already exists as \"%s\" with the same target.\n",
-					depth,src_link,dest_link);
+				printf("%d: Symlink \"%s\" already exists and is set correctly.\n",
+					depth,dest_link);
 			}
 			return;
 		}
+
+		// Pointing to something else. Only update if flag set.
+		if (!flags.compare_contents) 
+		{
+			printf("%d: WARNING: Symlink \"%s\" already exists but -> \"%s\". \n",
+				depth,dest_link,dest_target);
+			return;
+		}
+		printf("%d: Symlink \"%s\" already exists but -> \"%s\". Deleting: ",
+			depth,dest_link,dest_target);
+		if (unlink(dest_link) == -1)
+		{
+			printf("ERROR: copySymbolicLink(): unlink(\"%s\"): %s\n",
+				dest_link,strerror(errno));
+			ERROR_EXIT();
+			return;
+		}
+		puts("OK");
 	}
 	if (verbose)
 	{
-		printf("%d: Creating symlink \"%s\" -> \"%s\"... ",
+		printf("%d: Creating symlink \"%s\" -> \"%s\": ",
 			depth,dest_link,src_target);
 	}
-	unlink(dest_link);
 	if (symlink(src_target,dest_link) == -1)
 	{
 		printf("ERROR: copySymbolicLink(): symlink(): %s\n",
@@ -450,6 +480,7 @@ void copySymbolicLink(
 	if (copyMetaData(src_link,dest_link,src_stat,true) && verbose)
 		puts("OK");
 	++symlinks_copied;
+	++total_copied;
 }
 
 
@@ -481,7 +512,7 @@ bool copyMetaData(char *src, char *dest, struct stat *src_stat, bool symlink)
 
 
 
-/*** Set the file attributes data in the inode ***/
+/*** Copy the standard file attributes from the source file ***/
 bool copyFileAttrs(char *dest, struct stat *src_stat)
 {
 	if (!flags.copy_metadata) return true;
@@ -524,9 +555,10 @@ bool copyFileAttrs(char *dest, struct stat *src_stat)
 
 
 
-/*** Use xattr on MacOS command line to set, attr on linux. Linux doesn't
+/*** "xattr" on MacOS command line to get/set, "attr" on linux. Linux doesn't
      allow extended attributes on soft links except under specific 
-     circumstances but I've put the code in anyway ***/
+     circumstances but I've put the code in anyway because that might change
+     at some point ***/
 bool copyXAttrs(char *src, char *dest, bool symlink)
 {
 	int size;
@@ -546,8 +578,8 @@ bool copyXAttrs(char *src, char *dest, bool symlink)
 		return false;
 
 	// Get the list of keys. Values have to be obtained seperately.
-	unique_ptr<char[]> ukeybuf(new char[size]);
-	char *keybuf = ukeybuf.get();
+	char *keybuf = new char[size];
+	unique_ptr<char[]> ukeybuf(keybuf);
 #ifdef __APPLE__
 	if (listxattr(src,keybuf,size,flags) == -1)
 #else
@@ -585,8 +617,8 @@ bool copyXAttrs(char *src, char *dest, bool symlink)
 #endif
 		if (vallen == -1) return false;
 
-		uvalue.reset(new char[vallen+1]);
-		value = uvalue.get();
+		value = new char[vallen+1];
+		unique_ptr<char[]> uvalue(value);
 
 		// Get the value
 #ifdef __APPLE__
@@ -611,7 +643,9 @@ bool copyXAttrs(char *src, char *dest, bool symlink)
 			res = setxattr(dest,key,value,vallen,0);
 #endif
 		if (res == -1) return false;
+		++xattr_copied;
 	}
+	if (key != keybuf) ++xattr_files;
 	return true;
 }
 

@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <dirent.h>
 #include <regex.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -16,8 +15,9 @@
 #include <map>
 #include <string>
 #include <memory>
+#include <filesystem>
 
-#define VERSION   "20240117"
+#define VERSION "20240307"
 
 #ifdef MAINFILE
 #define EXTERN
@@ -62,6 +62,9 @@ EXTERN int verbose;
 EXTERN int files_copied;
 EXTERN int symlinks_copied;
 EXTERN int dirs_copied;
+EXTERN int xattr_copied;
+EXTERN int xattr_files;
+EXTERN int total_copied;
 EXTERN int unmatched_deleted;
 EXTERN int regex_type;
 EXTERN int errors;
@@ -73,5 +76,5 @@ void copyFiles(string &src_dir, string &dest_dir, int depth);
 // names.cc
 map<string,struct stat>::iterator findName(
 	const string &name, map<string,struct stat> &names_list);
-bool nameMatched(string &name);
+bool nameMatched(const string &name);
 

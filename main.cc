@@ -18,7 +18,7 @@ void init();
 int main(int argc, char **argv)
 {
 	parseCmdLine(argc,argv);
-	if (verbose) version();
+	if (verbose == VERB_HIGH) version();
 	init();
 	copyFiles(dir_src,dir_dest,1);
 	return 0;
@@ -180,6 +180,9 @@ void init()
 	files_copied = 0;
 	symlinks_copied = 0;
 	dirs_copied = 0;
+	xattr_copied = 0;
+	xattr_files = 0;
+	total_copied = 0;
 	unmatched_deleted = 0;
 	errors = 0;
 	warnings = 0;

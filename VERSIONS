@@ -4,3 +4,12 @@
 - Added new -x argument which causes copying of extended attributes.
 - Changed default verbosity level from 0 to 1.
 - Added sync() call at the end.
+
+20240307
+========
+- If a symlink already exists but is pointing to something else it now won't be
+  updated unless -c option given.
+- Added more counts at end.
+- Now doesn't sync if nothing copied.
+- Updated some of the code to C++17.
+- Minor bug fixes.
