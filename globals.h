@@ -17,7 +17,7 @@
 #include <memory>
 #include <filesystem>
 
-#define VERSION "20240307"
+#define VERSION "20240731"
 
 #ifdef MAINFILE
 #define EXTERN

@@ -13,3 +13,10 @@
 - Now doesn't sync if nothing copied.
 - Updated some of the code to C++17.
 - Minor bug fixes.
+
+20240801
+========
+- Fixed bug whereby it wasn't deleting unmatched files in a directory where
+  there were no files to add.
+- Changed -l option to slightly more logical -u (for unlink).
+- Minor updates.

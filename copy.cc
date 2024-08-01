@@ -59,7 +59,8 @@ void copyFiles(string &src_dir, string &dest_dir, int depth)
 	{
 		if (verbose == VERB_HIGH)
 			printf("%d: No files in \"%s\"\n",depth,src_dir.c_str());
-		return;
+		// Don't return if set as we might find files to delete
+		if (!flags.delete_unmatched) return;
 	}
 
 	// Find whats already there, doesn't matter if there's nothing
@@ -303,7 +304,7 @@ bool makeDir(char *src, char *dest, struct stat *src_stat, int depth)
 	if (mkdir(dest,0755) != -1)
 	{
 		if (verbose)
-			printf("%d: Created directory \"%s\": ",depth,dest);
+			printf("%d: Creating directory \"%s\": ",depth,dest);
 		if (copyMetaData(src,dest,src_stat,false) && verbose)
 			puts("OK");
 		return true;
@@ -706,12 +707,12 @@ char *bytesSizeStr(size_t bytes)
 	/* Only start printing in kilobytes from 10000 as eg 2345 bytes is
 	   still easy to read */
 	if (bytes < 1e4)
-		sprintf(str,"%lu bytes",bytes);
+		snprintf(str,sizeof(str),"%lu bytes",bytes);
 	else if (bytes < 1e6)
-		sprintf(str,"%.1fK",(double)bytes / 1e3);
+		snprintf(str,sizeof(str),"%.1fK",(double)bytes / 1e3);
 	else if (bytes < 1e9)
-		sprintf(str,"%.1fM",(double)bytes / 1e6);
+		snprintf(str,sizeof(str),"%.1fM",(double)bytes / 1e6);
 	else
-		sprintf(str,"%.2fG",(double)bytes / 1e9);
+		snprintf(str,sizeof(str),"%.2fG",(double)bytes / 1e9);
 	return str;
 }

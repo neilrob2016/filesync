@@ -11,8 +11,8 @@
 #include "build_date.h"
 
 void parseCmdLine(int argc, char **argv);
-void version();
-void init();
+void version(void);
+void init(void);
 
 
 int main(int argc, char **argv)
@@ -59,14 +59,14 @@ void parseCmdLine(int argc, char **argv)
 		case 'i':
 			flags.ignore_case = 1;
 			continue;
-		case 'l':
-			flags.delete_unmatched = 1;
-			continue;
 		case 'm':
 			flags.copy_metadata = 0;
 			continue;
 		case 'o':
 			flags.copy_dot_files = 1;
+			continue;
+		case 'u':
+			flags.delete_unmatched = 1;
 			continue;
 		case 'v':
 			version();
@@ -139,12 +139,13 @@ void parseCmdLine(int argc, char **argv)
 	       "      [-i]                    : Ignore case in names when not using regex.\n"
 	       "                                Meant for OSX which has a case insensitive\n"
 	       "                                file system by default.\n"
-	       "      [-l]                    : Delete files (not dirs) in destination that\n"
-	       "                                don't exist in the source.\n"
 	       "      [-m]                    : Do NOT copy standard file metadata. ie: mode,\n"
 	       "                                user & group id, access and modification times.\n"
 	       "      [-o]                    : Copy (and delete if -l) dot files and\n"
 	       "                                directories. eg: .profile\n"
+	       "      [-u]                    : Delete/unlink files (not dirs) in destination\n"
+	       "                                that don't exist in the source but only if\n"
+	       "                                they're in dirs that DO exist in the source.\n"
 	       "      [-v]                    : Print version and exit.\n"
 	       "      [-x]                    : Copy extended attributes if possible. If it\n"
 	       "                                fails a warning is given, not a fatal error.\n"
@@ -159,7 +160,7 @@ void parseCmdLine(int argc, char **argv)
 
 
 
-void version()
+void version(void)
 {
 	puts("\n*** FILESYNC ***\n");
 	puts("Copyright (C) Neil Robertson 2021-2024\n");
@@ -170,7 +171,7 @@ void version()
 
 
 
-void init()
+void init(void)
 {
 	regex_t regex;
 	char errstr[100];
